@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Lecture Shelf</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <main class="app-shell">
+    <header class="topbar">
+      <div class="brand">
+        <span class="brand-mark" aria-label="University of Michigan">M</span>
+        <div>
+          <p class="eyebrow">University of Michigan</p>
+          <h1>Lecture Shelf</h1>
+        </div>
+      </div>
+      <div class="top-actions">
+        <span id="sync-status" class="status-pill">No folder selected</span>
+        <button id="add-class-button" class="icon-button" type="button">Add class</button>
+        <button id="choose-button" class="primary-button" type="button">Choose folder</button>
+      </div>
+    </header>
+
+    <section class="hero">
+      <div>
+        <p class="eyebrow">Your classes, at a glance</p>
+        <h2>Find the lecture you need before the search spiral begins.</h2>
+        <p class="hero-copy">Choose your lecture folder once. Lecture Shelf reads class subfolders, sorts files by their latest update, and keeps your newest material close at hand.</p>
+      </div>
+      <div class="hero-note">
+        <span class="hero-note-label">Latest scan</span>
+        <strong id="scan-time">Waiting for a folder</strong>
+        <span id="file-count">No files indexed</span>
+      </div>
+    </section>
+
+    <section class="toolbar" aria-label="Lecture filters">
+      <label class="search-box">
+        <span class="search-icon">Search</span>
+        <input id="search-input" type="search" placeholder="Search classes or lecture files" autocomplete="off">
+      </label>
+      <div class="view-toggle" role="group" aria-label="View mode">
+        <button class="view-button is-active" data-view="grid" type="button">Grid</button>
+        <button class="view-button" data-view="list" type="button">List</button>
+      </div>
+    </section>
+
+    <section id="empty-state" class="empty-state">
+      <div class="empty-icon">01</div>
+      <h3>Start with your lecture folder</h3>
+      <p>Keep one folder per class, then choose the parent folder here. We will surface the newest file in every class automatically.</p>
+      <button id="empty-choose-button" class="primary-button" type="button">Choose lecture folder</button>
+      <p class="support-note">Every file in an attached folder is added. Files your browser supports can be opened directly.</p>
+    </section>
+
+    <section id="library" class="library" hidden>
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">Your library</p>
+          <h3 id="library-heading">Classes</h3>
+        </div>
+        <span id="result-count" class="result-count"></span>
+      </div>
+      <div id="class-grid" class="class-grid"></div>
+    </section>
+
+    <input id="folder-input" type="file" webkitdirectory directory multiple hidden>
+    <input id="file-input" type="file" multiple hidden>
+    <dialog id="class-dialog" class="class-dialog">
+      <form id="class-form" method="dialog">
+        <p class="eyebrow">New class</p>
+        <h3>Name your class</h3>
+        <label for="class-name-input">Class name</label>
+        <input id="class-name-input" type="text" placeholder="e.g. EECS 280" required maxlength="80" autocomplete="off">
+        <div class="dialog-actions">
+          <button id="cancel-class-button" class="icon-button" value="cancel" type="button">Cancel</button>
+          <button class="primary-button" value="default" type="submit">Add class</button>
+        </div>
+      </form>
+    </dialog>
+  </main>
+  <script src="app.js"></script>
+</body>
+</html>
