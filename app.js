@@ -116,6 +116,7 @@ fileInput.addEventListener('change', () => {
       file,
       type: extensionOf(file.name)
     }));
+    classItem.manualFiles = [...(classItem.manualFiles || []), ...files];
     classItem.files = [...classItem.files, ...files];
     const classFilePaths = new Set(state.classes.flatMap(item => item.files.map(file => file.path)));
     state.files = [...state.files.filter(file => !classFilePaths.has(file.path)), ...state.classes.flatMap(item => item.files)];
@@ -185,7 +186,7 @@ function addFilesToClass(classId) {
   let classItem = state.classes.find(item => item.id === classId || item.name === classId);
   if (!classItem) {
     const existingFiles = state.files.filter(file => file.path.startsWith(`${classId}/`));
-    classItem = { id: crypto.randomUUID(), name: classId, files: existingFiles };
+    classItem = { id: crypto.randomUUID(), name: classId, files: existingFiles, manualFiles: [] };
     state.classes.push(classItem);
   }
   state.pendingFileClassId = classItem.id;
@@ -229,13 +230,15 @@ async function scanDirectories() {
     });
   }
   for (const classItem of state.classes) {
-    if (!classItem.directoryHandle) continue;
-    const folderFiles = [];
-    await collectFiles(classItem.directoryHandle, '', folderFiles);
     classItem.manualFiles = classItem.manualFiles || [];
-    classItem.files = folderFiles.filter(isSupported).map(file => ({ ...file, path: `${classItem.name}/${file.path}` })).filter(file => !state.ignoredFiles.has(file.path));
-    classItem.files.push(...classItem.manualFiles.filter(file => !state.ignoredFiles.has(file.path)));
-    files.push(...classItem.files);
+    if (classItem.directoryHandle) {
+      const folderFiles = [];
+      await collectFiles(classItem.directoryHandle, '', folderFiles);
+      classItem.files = folderFiles.filter(isSupported).map(file => ({ ...file, path: `${classItem.name}/${file.path}` })).filter(file => !state.ignoredFiles.has(file.path));
+    }
+    const manualFiles = classItem.manualFiles.filter(file => !state.ignoredFiles.has(file.path));
+    classItem.files = [...classItem.files.filter(file => !manualFiles.some(manualFile => manualFile.path === file.path)), ...manualFiles];
+    files.push(...(classItem.directoryHandle ? classItem.files : manualFiles));
   }
   state.files = files.filter(isSupported)
     .filter(file => !state.ignoredFiles.has(file.path))
