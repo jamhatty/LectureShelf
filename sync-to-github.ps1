@@ -24,7 +24,13 @@ if ($confirmation -notmatch '^(y|yes)$') {
 
 $message = "Update Lecture Shelf $(Get-Date -Format 'yyyy-MM-dd HH:mm')"
 git commit -m $message
-git push origin main
+$pushOutput = git push origin main 2>&1
+if ($LASTEXITCODE -ne 0) {
+    Write-Host $pushOutput -ForegroundColor Red
+    Write-Host 'Push failed. Pull the remote changes, resolve any conflicts, then run this script again.' -ForegroundColor Red
+    exit $LASTEXITCODE
+}
+Write-Host $pushOutput
 Write-Host ''
 Write-Host 'Sync complete. GitHub Pages will deploy the update shortly.' -ForegroundColor Green
 Read-Host 'Press Enter to close'
