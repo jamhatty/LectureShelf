@@ -364,8 +364,12 @@ function escapeHtml(value) { return value.replace(/[&<>'"]/g, character => ({ '&
 
 function openFolderDatabase() {
   return new Promise((resolve, reject) => {
-    const request = indexedDB.open('lecture-shelf', 1);
-    request.onupgradeneeded = () => request.result.createObjectStore('folders', { keyPath: 'id' });
+    const request = indexedDB.open('lecture-shelf', 2);
+    request.onupgradeneeded = () => {
+      const database = request.result;
+      if (!database.objectStoreNames.contains('folders')) database.createObjectStore('folders', { keyPath: 'id' });
+      if (!database.objectStoreNames.contains('manual-files')) database.createObjectStore('manual-files', { keyPath: 'path' });
+    };
     request.onsuccess = () => resolve(request.result);
     request.onerror = () => reject(request.error);
   });
@@ -373,19 +377,32 @@ function openFolderDatabase() {
 
 async function saveState() {
   localStorage.setItem(storageKey, JSON.stringify({
-    classes: state.classes.map(item => ({ id: item.id, name: item.name, manualFiles: item.manualFiles || [] })),
+    classes: state.classes.map(item => ({
+      id: item.id,
+      name: item.name,
+      manualFiles: (item.manualFiles || []).map(file => ({ name: file.name, path: file.path, lastModified: file.lastModified, type: file.type }))
+    })),
     latestByClass: [...state.latestByClass.entries()],
     ignoredFiles: [...state.ignoredFiles],
     ignoredClasses: [...state.ignoredClasses],
     knownClasses: [...state.knownClasses]
   }));
   const database = await folderDatabase;
-  const transaction = database.transaction('folders', 'readwrite');
+  const transaction = database.transaction(['folders', 'manual-files'], 'readwrite');
   const store = transaction.objectStore('folders');
+  const manualFileStore = transaction.objectStore('manual-files');
   store.clear();
+  manualFileStore.clear();
   state.directoryHandles.forEach((handle, index) => store.put({ id: `root-${index}`, handle }));
   state.classes.forEach(item => {
     if (item.directoryHandle) store.put({ id: `class-${item.id}`, handle: item.directoryHandle });
+    (item.manualFiles || []).forEach(file => {
+      if (file.file) manualFileStore.put({ path: file.path, name: file.name, lastModified: file.lastModified, type: file.type, file: file.file });
+    });
+  });
+  await new Promise((resolve, reject) => {
+    transaction.oncomplete = resolve;
+    transaction.onerror = () => reject(transaction.error);
   });
 }
 
@@ -397,26 +414,38 @@ async function restoreState() {
   state.ignoredClasses = new Set(saved.ignoredClasses || []);
   state.knownClasses = new Set(saved.knownClasses || []);
   const database = await folderDatabase;
-  const transaction = database.transaction('folders', 'readonly');
-  const request = transaction.objectStore('folders').getAll();
-  request.onerror = () => render();
-  request.onsuccess = async () => {
-    request.result.forEach(savedFolder => {
-      if (savedFolder.id.startsWith('root-')) state.directoryHandles.push(savedFolder.handle);
-      if (savedFolder.id.startsWith('class-')) {
-        const classItem = state.classes.find(item => `class-${item.id}` === savedFolder.id);
-        if (classItem) classItem.directoryHandle = savedFolder.handle;
-      }
-    });
-    render();
-    if (state.directoryHandles.length || state.classes.some(item => item.directoryHandle)) {
-      try {
-        await scanDirectories();
-      } catch (error) {
-        render();
-      }
+  const [savedFolders, savedManualFiles] = await Promise.all([readStore(database, 'folders'), readStore(database, 'manual-files')]);
+  const manualFilesByPath = new Map(savedManualFiles.map(file => [file.path, file]));
+  state.classes.forEach(item => {
+    item.manualFiles = (item.manualFiles || []).map(file => {
+      const savedFile = manualFilesByPath.get(file.path);
+      return savedFile ? { ...file, file: savedFile.file } : file;
+    }).filter(file => file.file);
+  });
+  savedFolders.forEach(savedFolder => {
+    if (savedFolder.id.startsWith('root-')) state.directoryHandles.push(savedFolder.handle);
+    if (savedFolder.id.startsWith('class-')) {
+      const classItem = state.classes.find(item => `class-${item.id}` === savedFolder.id);
+      if (classItem) classItem.directoryHandle = savedFolder.handle;
     }
-  };
+  });
+  render();
+  if (state.directoryHandles.length || state.classes.some(item => item.directoryHandle)) {
+    try {
+      await scanDirectories();
+    } catch (error) {
+      render();
+    }
+  }
+}
+
+function readStore(database, storeName) {
+  return new Promise((resolve, reject) => {
+    const transaction = database.transaction(storeName, 'readonly');
+    const request = transaction.objectStore(storeName).getAll();
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
 }
 
 restoreState().catch(() => render());
