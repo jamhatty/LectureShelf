@@ -90,6 +90,9 @@ h1 { margin-bottom: 0; font-size: 21px; letter-spacing: -.04em; }
 .class-dialog input { width: 100%; padding: 12px; border: 1px solid var(--line); outline: 0; background: #fff; color: var(--ink); }
 .class-dialog input:focus { border-color: var(--accent); }
 .dialog-actions { display: flex; justify-content: flex-end; gap: 9px; margin-top: 22px; }
+.class-dialog label + input { margin-bottom: 12px; }
+.text-button { margin-top: 16px; padding: 0; border: 0; color: var(--accent-dark); background: transparent; font: 10px 'DM Mono', monospace; cursor: pointer; }
+.text-button:hover { text-decoration: underline; }
 .attach-folder-button { width: 100%; border: 0; text-align: left; cursor: pointer; }
 .add-files-button { margin-top: 12px; cursor: pointer; background: transparent; }
 .remove-class-button { padding: 2px 0; border: 0; color: var(--accent-dark); background: transparent; font: 9px 'DM Mono', monospace; text-transform: uppercase; cursor: pointer; }

@@ -18,6 +18,7 @@
       </div>
       <div class="top-actions">
         <span id="sync-status" class="status-pill">No folder selected</span>
+        <button id="auth-button" class="icon-button" type="button">Sign in</button>
         <button id="add-class-button" class="icon-button" type="button">Add class</button>
         <button id="choose-button" class="primary-button" type="button">Choose folder</button>
       </div>
@@ -68,6 +69,21 @@
 
     <input id="folder-input" type="file" webkitdirectory directory multiple hidden>
     <input id="file-input" type="file" multiple hidden>
+    <dialog id="auth-dialog" class="class-dialog">
+      <form id="auth-form" method="dialog">
+        <p class="eyebrow">Cloud library</p>
+        <h3 id="auth-heading">Sign in</h3>
+        <label for="auth-email">Email</label>
+        <input id="auth-email" type="email" required autocomplete="email">
+        <label for="auth-password">Password</label>
+        <input id="auth-password" type="password" required minlength="6" autocomplete="current-password">
+        <div class="dialog-actions">
+          <button id="cancel-auth-button" class="icon-button" value="cancel" type="button">Cancel</button>
+          <button id="auth-submit-button" class="primary-button" value="default" type="submit">Sign in</button>
+        </div>
+        <button id="auth-mode-button" class="text-button" type="button">Create an account instead</button>
+      </form>
+    </dialog>
     <dialog id="class-dialog" class="class-dialog">
       <form id="class-form" method="dialog">
         <p class="eyebrow">New class</p>
@@ -81,6 +97,7 @@
       </form>
     </dialog>
   </main>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="app.js"></script>
 </body>
 </html>

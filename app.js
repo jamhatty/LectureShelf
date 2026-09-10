@@ -15,6 +15,12 @@ const state = {
 
 const storageKey = 'lecture-shelf-classes';
 const folderDatabase = openFolderDatabase();
+const supabase = window.supabase.createClient(
+  'https://wexsynsbagvdbudqhwtt.supabase.co',
+  'sb_publishable_mYron3EUK3ZIaaB32EhyHg_mPzNAvql'
+);
+let currentUser = null;
+let authMode = 'signin';
 const chooseButton = document.querySelector('#choose-button');
 const addClassButton = document.querySelector('#add-class-button');
 const emptyChooseButton = document.querySelector('#empty-choose-button');
@@ -33,9 +39,32 @@ const classDialog = document.querySelector('#class-dialog');
 const classForm = document.querySelector('#class-form');
 const classNameInput = document.querySelector('#class-name-input');
 const cancelClassButton = document.querySelector('#cancel-class-button');
+const authButton = document.querySelector('#auth-button');
+const authDialog = document.querySelector('#auth-dialog');
+const authForm = document.querySelector('#auth-form');
+const authHeading = document.querySelector('#auth-heading');
+const authEmail = document.querySelector('#auth-email');
+const authPassword = document.querySelector('#auth-password');
+const authSubmitButton = document.querySelector('#auth-submit-button');
+const authModeButton = document.querySelector('#auth-mode-button');
+const cancelAuthButton = document.querySelector('#cancel-auth-button');
 
 chooseButton.addEventListener('click', chooseFolder);
 addClassButton.addEventListener('click', addClass);
+authButton.addEventListener('click', () => currentUser ? signOut() : openAuthDialog());
+authModeButton.addEventListener('click', toggleAuthMode);
+cancelAuthButton.addEventListener('click', () => authDialog.close());
+authForm.addEventListener('submit', handleAuth);
+supabase.auth.onAuthStateChange(async (_event, session) => {
+  currentUser = session?.user || null;
+  updateAuthUi();
+  if (currentUser) await loadCloudLibrary();
+});
+supabase.auth.getSession().then(({ data }) => {
+  currentUser = data.session?.user || null;
+  updateAuthUi();
+  if (currentUser) loadCloudLibrary();
+});
 classForm.addEventListener('submit', event => {
   event.preventDefault();
   const className = classNameInput.value.trim();
@@ -46,10 +75,12 @@ classForm.addEventListener('submit', event => {
   }
   state.ignoredClasses.delete(className);
   state.knownClasses.add(className);
-  state.classes.push({ id: crypto.randomUUID(), name: className, files: [], manualFiles: [] });
+  const classItem = { id: crypto.randomUUID(), name: className, files: [], manualFiles: [] };
+  state.classes.push(classItem);
   classNameInput.value = '';
   classDialog.close();
   saveState();
+  if (currentUser) saveCloudClass(classItem);
   render();
 });
 cancelClassButton.addEventListener('click', () => classDialog.close());
@@ -123,6 +154,7 @@ fileInput.addEventListener('change', () => {
     const classFilePaths = new Set(state.classes.flatMap(item => item.files.map(file => file.path)));
     state.files = [...state.files.filter(file => !classFilePaths.has(file.path)), ...state.classes.flatMap(item => item.files)];
     saveState();
+    if (currentUser) uploadCloudFiles(classItem, files);
     render();
   }
   state.pendingFileClassId = null;
@@ -136,6 +168,112 @@ document.querySelectorAll('.view-button').forEach(button => {
     render();
   });
 });
+
+function openAuthDialog() {
+  authDialog.showModal();
+  authEmail.focus();
+}
+
+function toggleAuthMode() {
+  authMode = authMode === 'signin' ? 'signup' : 'signin';
+  authHeading.textContent = authMode === 'signin' ? 'Sign in' : 'Create account';
+  authSubmitButton.textContent = authMode === 'signin' ? 'Sign in' : 'Create account';
+  authModeButton.textContent = authMode === 'signin' ? 'Create an account instead' : 'I already have an account';
+}
+
+async function handleAuth(event) {
+  event.preventDefault();
+  const credentials = { email: authEmail.value.trim(), password: authPassword.value };
+  const result = authMode === 'signin'
+    ? await supabase.auth.signInWithPassword(credentials)
+    : await supabase.auth.signUp(credentials);
+  if (result.error) {
+    setStatus(result.error.message);
+    return;
+  }
+  authPassword.value = '';
+  authDialog.close();
+  setStatus(authMode === 'signin' ? 'Signed in' : 'Check your email to confirm your account');
+}
+
+async function signOut() {
+  await supabase.auth.signOut();
+  setStatus('Signed out');
+}
+
+function updateAuthUi() {
+  authButton.textContent = currentUser ? 'Sign out' : 'Sign in';
+  authButton.title = currentUser ? currentUser.email : 'Sign in to sync your library';
+}
+
+async function saveCloudClass(classItem) {
+  const { data, error } = await supabase.from('classes').insert({ user_id: currentUser.id, name: classItem.name }).select().single();
+  if (error) {
+    setStatus(error.message);
+    return;
+  }
+  classItem.cloudId = data.id;
+}
+
+async function uploadCloudFiles(classItem, files) {
+  if (!currentUser) return;
+  if (!classItem.cloudId) {
+    await saveCloudClass(classItem);
+  }
+  if (!classItem.cloudId) return;
+  for (const file of files) {
+    const storagePath = `${currentUser.id}/${classItem.cloudId}/${crypto.randomUUID()}-${file.name}`;
+    const upload = await supabase.storage.from('lectures').upload(storagePath, file.file, { upsert: false });
+    if (upload.error) {
+      setStatus(upload.error.message);
+      continue;
+    }
+    const record = await supabase.from('lectures').insert({
+      class_id: classItem.cloudId,
+      user_id: currentUser.id,
+      name: file.name,
+      storage_path: storagePath,
+      file_type: file.type,
+      file_size: file.file.size,
+      last_modified: new Date(file.lastModified).toISOString()
+    }).select().single();
+    if (record.error) setStatus(record.error.message);
+  }
+  setStatus('Saved to cloud');
+}
+
+async function loadCloudLibrary() {
+  const classesResult = await supabase.from('classes').select('*').order('created_at');
+  if (classesResult.error) {
+    setStatus(classesResult.error.message);
+    return;
+  }
+  const lecturesResult = await supabase.from('lectures').select('*').order('last_modified', { ascending: false });
+  if (lecturesResult.error) {
+    setStatus(lecturesResult.error.message);
+    return;
+  }
+  const cloudClasses = [];
+  for (const cloudClass of classesResult.data) {
+    const classItem = { id: cloudClass.id, cloudId: cloudClass.id, name: cloudClass.name, files: [], manualFiles: [] };
+    for (const lecture of lecturesResult.data.filter(item => item.class_id === cloudClass.id)) {
+      const signed = await supabase.storage.from('lectures').createSignedUrl(lecture.storage_path, 3600);
+      classItem.files.push({
+        name: lecture.name,
+        path: `${cloudClass.name}/${lecture.name}`,
+        lastModified: lecture.last_modified ? new Date(lecture.last_modified).getTime() : Date.now(),
+        type: lecture.file_type || extensionOf(lecture.name),
+        url: signed.data?.signedUrl
+      });
+    }
+    cloudClasses.push(classItem);
+  }
+  state.classes = cloudClasses;
+  state.files = cloudClasses.flatMap(item => item.files);
+  state.knownClasses = new Set(cloudClasses.map(item => item.name));
+  render();
+  setStatus('Cloud library loaded');
+}
 
 async function chooseFolder() {
   if ('showDirectoryPicker' in window) {
@@ -345,18 +483,19 @@ function renderClassCard(group, index) {
     <span class="class-meta">Updated ${formatDate(latest.lastModified)}</span>
     <label class="latest-picker">Latest lecture<select data-latest-class="${escapeHtml(group.name)}">${latestOptions}</select></label>
     <div class="file-row">
-      <a class="latest-file" href="${URL.createObjectURL(latest.file)}" target="_blank" rel="noopener">
+      <a class="latest-file" href="${fileLink(latest)}" target="_blank" rel="noopener">
         <span class="file-name" title="${escapeHtml(latest.name)}">${escapeHtml(latest.name)}</span>
         <span class="file-date">Open newest lecture</span>
       </a>
       <button class="remove-file-button" data-remove-file="${escapeHtml(latest.path)}" type="button">Remove file</button>
     </div>
     <button class="file-chip add-files-button" data-add-files="${escapeHtml(group.id || group.name)}" type="button">Add individual files</button>
-    ${otherFiles.length ? `<div class="more-files">${otherFiles.map(file => `<span class="file-row compact-file-row"><a class="file-chip" href="${URL.createObjectURL(file.file)}" target="_blank" rel="noopener" title="${escapeHtml(file.name)}">${escapeHtml(file.name)}</a><button class="remove-file-button" data-remove-file="${escapeHtml(file.path)}" type="button">Remove</button></span>`).join('')}</div>` : ''}
+    ${otherFiles.length ? `<div class="more-files">${otherFiles.map(file => `<span class="file-row compact-file-row"><a class="file-chip" href="${fileLink(file)}" target="_blank" rel="noopener" title="${escapeHtml(file.name)}">${escapeHtml(file.name)}</a><button class="remove-file-button" data-remove-file="${escapeHtml(file.path)}" type="button">Remove</button></span>`).join('')}</div>` : ''}
   </article>`;
 }
 
 function isSupported(file) { return Boolean(file && file.name); }
+function fileLink(file) { return file.url || (file.file ? URL.createObjectURL(file.file) : '#'); }
 function extensionOf(name) { return name.includes('.') ? name.split('.').pop().toLowerCase() : ''; }
 function formatDate(timestamp) { return new Date(timestamp).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' }); }
 function setStatus(text) { syncStatus.textContent = text; }
