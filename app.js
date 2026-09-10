@@ -282,6 +282,10 @@ async function uploadCloudFiles(classItem, files) {
       last_modified: new Date(file.lastModified).toISOString()
     }).select().single();
     if (record.error) setStatus(record.error.message);
+    else {
+      file.lectureId = record.data.id;
+      file.storagePath = storagePath;
+    }
   }
   setStatus('Saved to cloud');
 }
@@ -303,12 +307,14 @@ async function loadCloudLibrary() {
     const classItem = { id: cloudClass.id, cloudId: cloudClass.id, name: cloudClass.name, files: [], manualFiles: [] };
     for (const lecture of lecturesResult.data.filter(item => item.class_id === cloudClass.id)) {
       const signed = await supabaseClient.storage.from('lectures').createSignedUrl(lecture.storage_path, 3600);
-      classItem.files.push({
+        classItem.files.push({
         name: lecture.name,
         path: `${cloudClass.name}/${lecture.name}`,
         lastModified: lecture.last_modified ? new Date(lecture.last_modified).getTime() : Date.now(),
         type: lecture.file_type || extensionOf(lecture.name),
-        url: signed.data?.signedUrl
+          url: signed.data?.signedUrl,
+          lectureId: lecture.id,
+          storagePath: lecture.storage_path
       });
     }
     cloudClasses.push(classItem);
@@ -323,6 +329,8 @@ async function loadCloudLibrary() {
       continue;
     }
     existing.cloudId = cloudClass.cloudId;
+    const cloudFilesByPath = new Map(cloudClass.files.map(file => [file.path, file]));
+    existing.files = existing.files.map(file => cloudFilesByPath.has(file.path) ? { ...file, ...cloudFilesByPath.get(file.path) } : file);
     const existingPaths = new Set(existing.files.map(file => file.path));
     existing.files.push(...cloudClass.files.filter(file => !existingPaths.has(file.path)));
   }
@@ -396,7 +404,7 @@ function addFilesToClass(classId) {
   fileInput.click();
 }
 
-function removeClass(className) {
+async function removeClass(className) {
   const classItem = state.classes.find(item => item.id === className || item.name === className);
   const classKey = classItem ? classItem.name : className;
   state.ignoredClasses.add(classKey);
@@ -406,9 +414,11 @@ function removeClass(className) {
   state.latestByClass.delete(classKey);
   saveState();
   render();
+  if (classItem?.cloudId && currentUser) await deleteCloudClass(classItem.cloudId);
 }
 
-function removeFile(filePath) {
+async function removeFile(filePath) {
+  const fileRecord = state.files.find(file => file.path === filePath);
   state.ignoredFiles.add(filePath);
   state.files = state.files.filter(file => file.path !== filePath);
   state.classes.forEach(item => {
@@ -420,6 +430,29 @@ function removeFile(filePath) {
   }
   saveState();
   render();
+  if (fileRecord?.lectureId && currentUser) await deleteCloudFile(fileRecord);
+}
+
+async function deleteCloudFile(file) {
+  const storageResult = await supabaseClient.storage.from('lectures').remove([file.storagePath]);
+  if (storageResult.error) {
+    setStatus(storageResult.error.message);
+    return;
+  }
+  const databaseResult = await supabaseClient.from('lectures').delete().eq('id', file.lectureId);
+  if (databaseResult.error) setStatus(databaseResult.error.message);
+}
+
+async function deleteCloudClass(classId) {
+  const lecturesResult = await supabaseClient.from('lectures').select('storage_path').eq('class_id', classId);
+  if (lecturesResult.error) {
+    setStatus(lecturesResult.error.message);
+    return;
+  }
+  const paths = lecturesResult.data.map(lecture => lecture.storage_path);
+  if (paths.length) await supabaseClient.storage.from('lectures').remove(paths);
+  const databaseResult = await supabaseClient.from('classes').delete().eq('id', classId);
+  if (databaseResult.error) setStatus(databaseResult.error.message);
 }
 
 async function scanDirectories() {
@@ -578,7 +611,7 @@ async function saveState() {
     classes: state.classes.map(item => ({
       id: item.id,
       name: item.name,
-      manualFiles: (item.manualFiles || []).map(file => ({ name: file.name, path: file.path, lastModified: file.lastModified, type: file.type }))
+      manualFiles: (item.manualFiles || []).map(file => ({ name: file.name, path: file.path, lastModified: file.lastModified, type: file.type, lectureId: file.lectureId, storagePath: file.storagePath }))
     })),
     latestByClass: [...state.latestByClass.entries()],
     ignoredFiles: [...state.ignoredFiles],
