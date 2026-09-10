@@ -47,17 +47,29 @@ const authEmail = document.querySelector('#auth-email');
 const authPassword = document.querySelector('#auth-password');
 const authSubmitButton = document.querySelector('#auth-submit-button');
 const authModeButton = document.querySelector('#auth-mode-button');
+const forgotPasswordButton = document.querySelector('#forgot-password-button');
 const cancelAuthButton = document.querySelector('#cancel-auth-button');
 
 chooseButton.addEventListener('click', chooseFolder);
 addClassButton.addEventListener('click', addClass);
 authButton.addEventListener('click', () => currentUser ? signOut() : openAuthDialog());
 authModeButton.addEventListener('click', toggleAuthMode);
+forgotPasswordButton.addEventListener('click', sendPasswordReset);
 cancelAuthButton.addEventListener('click', () => authDialog.close());
 authForm.addEventListener('submit', handleAuth);
-supabaseClient.auth.onAuthStateChange(async (_event, session) => {
+supabaseClient.auth.onAuthStateChange(async (event, session) => {
   currentUser = session?.user || null;
   updateAuthUi();
+  if (event === 'PASSWORD_RECOVERY') {
+    authMode = 'reset';
+    authHeading.textContent = 'Set new password';
+    authSubmitButton.textContent = 'Save password';
+    authModeButton.hidden = true;
+    forgotPasswordButton.hidden = true;
+    authDialog.showModal();
+    authPassword.focus();
+    return;
+  }
   if (currentUser) await loadCloudLibrary();
 });
 supabaseClient.auth.getSession().then(({ data }) => {
@@ -181,8 +193,40 @@ function toggleAuthMode() {
   authModeButton.textContent = authMode === 'signin' ? 'Create an account instead' : 'I already have an account';
 }
 
+async function sendPasswordReset() {
+  const email = authEmail.value.trim();
+  if (!email) {
+    setStatus('Enter your email first');
+    authEmail.focus();
+    return;
+  }
+  const { error } = await supabaseClient.auth.resetPasswordForEmail(email, {
+    redirectTo: window.location.origin + window.location.pathname
+  });
+  if (error) {
+    setStatus(error.message);
+    return;
+  }
+  authDialog.close();
+  setStatus('Password reset email sent');
+}
+
 async function handleAuth(event) {
   event.preventDefault();
+  if (authMode === 'reset') {
+    const { error } = await supabaseClient.auth.updateUser({ password: authPassword.value });
+    if (error) {
+      setStatus(error.message);
+      return;
+    }
+    authPassword.value = '';
+    authDialog.close();
+    authMode = 'signin';
+    authModeButton.hidden = false;
+    forgotPasswordButton.hidden = false;
+    setStatus('Password updated');
+    return;
+  }
   const credentials = { email: authEmail.value.trim(), password: authPassword.value };
   const result = authMode === 'signin'
     ? await supabaseClient.auth.signInWithPassword(credentials)
