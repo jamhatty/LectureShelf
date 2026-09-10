@@ -160,8 +160,12 @@ function addClass() {
 }
 
 async function addFolderToClass(classId) {
-  const classItem = state.classes.find(item => item.id === classId);
-  if (!classItem) return;
+  let classItem = state.classes.find(item => item.id === classId || item.name === classId);
+  if (!classItem) {
+    const existingFiles = state.files.filter(file => file.path.startsWith(`${classId}/`));
+    classItem = { id: crypto.randomUUID(), name: classId, files: existingFiles, manualFiles: [] };
+    state.classes.push(classItem);
+  }
   if (!('showDirectoryPicker' in window)) {
     state.pendingClassId = classId;
     state.appendFolderInput = true;
@@ -291,7 +295,7 @@ function render() {
     return item.name.toLowerCase().includes(searchTerm) || item.files.some(file => file.name.toLowerCase().includes(searchTerm));
   });
 
-  const hasLibrary = state.files.length > 0 || state.classes.length > 0;
+  const hasLibrary = state.files.length > 0 || state.classes.length > 0 || state.knownClasses.size > 0;
   emptyState.hidden = hasLibrary;
   library.hidden = !hasLibrary;
   if (!hasLibrary) {
@@ -327,8 +331,8 @@ function renderClassCard(group, index) {
       <div class="card-top"><span class="class-index">${String(index + 1).padStart(2, '0')}</span><span class="card-actions"><span class="file-type">No folder</span><button class="remove-class-button" data-remove-class="${escapeHtml(group.id || group.name)}" type="button">Remove</button></span></div>
       <h4 title="${escapeHtml(group.name)}">${escapeHtml(group.name)}</h4>
       <span class="class-meta">Ready for lecture files</span>
-      <button class="latest-file attach-folder-button" data-add-folder="${escapeHtml(group.id)}" type="button"><span class="file-name">Add lecture folder</span><span class="file-date">Attach this class's folder</span></button>
-      <button class="file-chip add-files-button" data-add-files="${escapeHtml(group.id)}" type="button">Add individual files</button>
+      <button class="latest-file attach-folder-button" data-add-folder="${escapeHtml(group.id || group.name)}" type="button"><span class="file-name">Add lecture folder</span><span class="file-date">Attach this class's folder</span></button>
+      <button class="file-chip add-files-button" data-add-files="${escapeHtml(group.id || group.name)}" type="button">Add individual files</button>
     </article>`;
   }
   const selectedPath = state.latestByClass.get(group.name);
