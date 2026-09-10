@@ -5,6 +5,7 @@ const state = {
   latestByClass: new Map(),
   ignoredFiles: new Set(),
   ignoredClasses: new Set(),
+  knownClasses: new Set(),
   view: 'grid',
   appendFolderInput: false,
   pendingClassId: null,
@@ -44,6 +45,7 @@ classForm.addEventListener('submit', event => {
     return;
   }
   state.ignoredClasses.delete(className);
+  state.knownClasses.add(className);
   state.classes.push({ id: crypto.randomUUID(), name: className, files: [], manualFiles: [] });
   classNameInput.value = '';
   classDialog.close();
@@ -197,6 +199,7 @@ function removeClass(className) {
   const classItem = state.classes.find(item => item.id === className || item.name === className);
   const classKey = classItem ? classItem.name : className;
   state.ignoredClasses.add(classKey);
+  state.knownClasses.delete(classKey);
   state.classes = state.classes.filter(item => item.id !== className && item.name !== className);
   state.files = state.files.filter(file => !file.path.startsWith(`${classKey}/`));
   state.latestByClass.delete(classKey);
@@ -222,12 +225,16 @@ async function scanDirectories() {
   const files = [];
   state.scanErrors = 0;
   for (const directoryHandle of state.directoryHandles) {
-    const folderFiles = [];
-    await collectFiles(directoryHandle, '', folderFiles);
-    folderFiles.forEach(file => {
-      file.path = `${directoryHandle.name}/${file.path}`;
-      files.push(file);
-    });
+    try {
+      const folderFiles = [];
+      await collectFiles(directoryHandle, '', folderFiles);
+      folderFiles.forEach(file => {
+        file.path = `${directoryHandle.name}/${file.path}`;
+        files.push(file);
+      });
+    } catch (error) {
+      state.scanErrors += 1;
+    }
   }
   for (const classItem of state.classes) {
     classItem.manualFiles = classItem.manualFiles || [];
@@ -243,6 +250,11 @@ async function scanDirectories() {
   state.files = files.filter(isSupported)
     .filter(file => !state.ignoredFiles.has(file.path))
     .filter(file => !state.ignoredClasses.has(file.path.split('/')[0]));
+  files.forEach(file => {
+    const className = file.path.includes('/') ? file.path.split('/')[0] : null;
+    if (className && !state.ignoredClasses.has(className)) state.knownClasses.add(className);
+  });
+  saveState();
   render();
 }
 
@@ -271,7 +283,10 @@ async function collectFiles(directoryHandle, relativePath, files) {
 
 function render() {
   const searchTerm = searchInput.value.trim().toLowerCase();
-  const classes = [...groupByClass(state.files), ...state.classes.filter(item => !state.files.some(file => file.path.startsWith(`${item.name}/`)))].filter(item => {
+  const knownClassCards = [...state.knownClasses]
+    .filter(name => !state.ignoredClasses.has(name) && !state.classes.some(item => item.name === name) && !state.files.some(file => file.path.startsWith(`${name}/`)))
+    .map(name => ({ name, files: [] }));
+  const classes = [...groupByClass(state.files), ...state.classes.filter(item => !state.files.some(file => file.path.startsWith(`${item.name}/`))), ...knownClassCards].filter(item => {
     if (!searchTerm) return true;
     return item.name.toLowerCase().includes(searchTerm) || item.files.some(file => file.name.toLowerCase().includes(searchTerm));
   });
@@ -309,12 +324,11 @@ function groupByClass(files) {
 function renderClassCard(group, index) {
   if (!group.files.length) {
     return `<article class="class-card empty-class-card">
-      <div class="card-top"><span class="class-index">${String(index + 1).padStart(2, '0')}</span><span class="file-type">No folder</span></div>
+      <div class="card-top"><span class="class-index">${String(index + 1).padStart(2, '0')}</span><span class="card-actions"><span class="file-type">No folder</span><button class="remove-class-button" data-remove-class="${escapeHtml(group.id || group.name)}" type="button">Remove</button></span></div>
       <h4 title="${escapeHtml(group.name)}">${escapeHtml(group.name)}</h4>
       <span class="class-meta">Ready for lecture files</span>
       <button class="latest-file attach-folder-button" data-add-folder="${escapeHtml(group.id)}" type="button"><span class="file-name">Add lecture folder</span><span class="file-date">Attach this class's folder</span></button>
       <button class="file-chip add-files-button" data-add-files="${escapeHtml(group.id)}" type="button">Add individual files</button>
-      <button class="file-chip remove-class-button" data-remove-class="${escapeHtml(group.id)}" type="button">Remove class</button>
     </article>`;
   }
   const selectedPath = state.latestByClass.get(group.name);
@@ -322,7 +336,7 @@ function renderClassCard(group, index) {
   const otherFiles = group.files.filter(file => file !== latest);
   const latestOptions = group.files.map(file => `<option value="${escapeHtml(file.path)}" ${file === latest ? 'selected' : ''}>${escapeHtml(file.name)}</option>`).join('');
   return `<article class="class-card">
-    <div class="card-top"><span class="class-index">${String(index + 1).padStart(2, '0')}</span><span class="file-type">${group.files.length} file${group.files.length === 1 ? '' : 's'}</span></div>
+    <div class="card-top"><span class="class-index">${String(index + 1).padStart(2, '0')}</span><span class="card-actions"><span class="file-type">${group.files.length} file${group.files.length === 1 ? '' : 's'}</span><button class="remove-class-button" data-remove-class="${escapeHtml(group.id || group.name)}" type="button">Remove</button></span></div>
     <h4 title="${escapeHtml(group.name)}">${escapeHtml(group.name)}</h4>
     <span class="class-meta">Updated ${formatDate(latest.lastModified)}</span>
     <label class="latest-picker">Latest lecture<select data-latest-class="${escapeHtml(group.name)}">${latestOptions}</select></label>
@@ -334,7 +348,6 @@ function renderClassCard(group, index) {
       <button class="remove-file-button" data-remove-file="${escapeHtml(latest.path)}" type="button">Remove file</button>
     </div>
     <button class="file-chip add-files-button" data-add-files="${escapeHtml(group.id || group.name)}" type="button">Add individual files</button>
-    <button class="file-chip remove-class-button" data-remove-class="${escapeHtml(group.name)}" type="button">Remove class</button>
     ${otherFiles.length ? `<div class="more-files">${otherFiles.map(file => `<span class="file-row compact-file-row"><a class="file-chip" href="${URL.createObjectURL(file.file)}" target="_blank" rel="noopener" title="${escapeHtml(file.name)}">${escapeHtml(file.name)}</a><button class="remove-file-button" data-remove-file="${escapeHtml(file.path)}" type="button">Remove</button></span>`).join('')}</div>` : ''}
   </article>`;
 }
@@ -359,7 +372,8 @@ async function saveState() {
     classes: state.classes.map(item => ({ id: item.id, name: item.name, manualFiles: item.manualFiles || [] })),
     latestByClass: [...state.latestByClass.entries()],
     ignoredFiles: [...state.ignoredFiles],
-    ignoredClasses: [...state.ignoredClasses]
+    ignoredClasses: [...state.ignoredClasses],
+    knownClasses: [...state.knownClasses]
   }));
   const database = await folderDatabase;
   const transaction = database.transaction('folders', 'readwrite');
@@ -377,9 +391,11 @@ async function restoreState() {
   state.latestByClass = new Map(saved.latestByClass || []);
   state.ignoredFiles = new Set(saved.ignoredFiles || []);
   state.ignoredClasses = new Set(saved.ignoredClasses || []);
+  state.knownClasses = new Set(saved.knownClasses || []);
   const database = await folderDatabase;
   const transaction = database.transaction('folders', 'readonly');
   const request = transaction.objectStore('folders').getAll();
+  request.onerror = () => render();
   request.onsuccess = async () => {
     request.result.forEach(savedFolder => {
       if (savedFolder.id.startsWith('root-')) state.directoryHandles.push(savedFolder.handle);
@@ -388,8 +404,14 @@ async function restoreState() {
         if (classItem) classItem.directoryHandle = savedFolder.handle;
       }
     });
-    if (state.directoryHandles.length || state.classes.some(item => item.directoryHandle)) await scanDirectories();
-    else render();
+    render();
+    if (state.directoryHandles.length || state.classes.some(item => item.directoryHandle)) {
+      try {
+        await scanDirectories();
+      } catch (error) {
+        render();
+      }
+    }
   };
 }
 
