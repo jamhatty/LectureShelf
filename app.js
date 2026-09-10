@@ -287,6 +287,7 @@ async function uploadCloudFiles(classItem, files) {
 }
 
 async function loadCloudLibrary() {
+  const localFiles = [...state.files];
   const classesResult = await supabaseClient.from('classes').select('*').order('created_at');
   if (classesResult.error) {
     setStatus(classesResult.error.message);
@@ -312,9 +313,23 @@ async function loadCloudLibrary() {
     }
     cloudClasses.push(classItem);
   }
-  state.classes = cloudClasses;
-  state.files = cloudClasses.flatMap(item => item.files);
-  state.knownClasses = new Set(cloudClasses.map(item => item.name));
+  const classesByName = new Map(state.classes.map(item => [item.name.toLowerCase(), item]));
+  for (const cloudClass of cloudClasses) {
+    const key = cloudClass.name.toLowerCase();
+    const existing = classesByName.get(key);
+    if (!existing) {
+      state.classes.push(cloudClass);
+      classesByName.set(key, cloudClass);
+      continue;
+    }
+    existing.cloudId = cloudClass.cloudId;
+    const existingPaths = new Set(existing.files.map(file => file.path));
+    existing.files.push(...cloudClass.files.filter(file => !existingPaths.has(file.path)));
+  }
+  const mergedFiles = new Map(localFiles.map(file => [file.path, file]));
+  state.classes.flatMap(item => item.files).forEach(file => mergedFiles.set(file.path, file));
+  state.files = [...mergedFiles.values()];
+  state.knownClasses = new Set([...state.knownClasses, ...cloudClasses.map(item => item.name)]);
   render();
   setStatus('Cloud library loaded');
 }
