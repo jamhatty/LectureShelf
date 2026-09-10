@@ -15,7 +15,7 @@ const state = {
 
 const storageKey = 'lecture-shelf-classes';
 const folderDatabase = openFolderDatabase();
-const supabase = window.supabase.createClient(
+const supabaseClient = window.supabase.createClient(
   'https://wexsynsbagvdbudqhwtt.supabase.co',
   'sb_publishable_mYron3EUK3ZIaaB32EhyHg_mPzNAvql'
 );
@@ -55,12 +55,12 @@ authButton.addEventListener('click', () => currentUser ? signOut() : openAuthDia
 authModeButton.addEventListener('click', toggleAuthMode);
 cancelAuthButton.addEventListener('click', () => authDialog.close());
 authForm.addEventListener('submit', handleAuth);
-supabase.auth.onAuthStateChange(async (_event, session) => {
+supabaseClient.auth.onAuthStateChange(async (_event, session) => {
   currentUser = session?.user || null;
   updateAuthUi();
   if (currentUser) await loadCloudLibrary();
 });
-supabase.auth.getSession().then(({ data }) => {
+supabaseClient.auth.getSession().then(({ data }) => {
   currentUser = data.session?.user || null;
   updateAuthUi();
   if (currentUser) loadCloudLibrary();
@@ -185,8 +185,8 @@ async function handleAuth(event) {
   event.preventDefault();
   const credentials = { email: authEmail.value.trim(), password: authPassword.value };
   const result = authMode === 'signin'
-    ? await supabase.auth.signInWithPassword(credentials)
-    : await supabase.auth.signUp(credentials);
+    ? await supabaseClient.auth.signInWithPassword(credentials)
+    : await supabaseClient.auth.signUp(credentials);
   if (result.error) {
     setStatus(result.error.message);
     return;
@@ -197,7 +197,7 @@ async function handleAuth(event) {
 }
 
 async function signOut() {
-  await supabase.auth.signOut();
+  await supabaseClient.auth.signOut();
   setStatus('Signed out');
 }
 
@@ -207,7 +207,7 @@ function updateAuthUi() {
 }
 
 async function saveCloudClass(classItem) {
-  const { data, error } = await supabase.from('classes').insert({ user_id: currentUser.id, name: classItem.name }).select().single();
+  const { data, error } = await supabaseClient.from('classes').insert({ user_id: currentUser.id, name: classItem.name }).select().single();
   if (error) {
     setStatus(error.message);
     return;
@@ -223,12 +223,12 @@ async function uploadCloudFiles(classItem, files) {
   if (!classItem.cloudId) return;
   for (const file of files) {
     const storagePath = `${currentUser.id}/${classItem.cloudId}/${crypto.randomUUID()}-${file.name}`;
-    const upload = await supabase.storage.from('lectures').upload(storagePath, file.file, { upsert: false });
+    const upload = await supabaseClient.storage.from('lectures').upload(storagePath, file.file, { upsert: false });
     if (upload.error) {
       setStatus(upload.error.message);
       continue;
     }
-    const record = await supabase.from('lectures').insert({
+    const record = await supabaseClient.from('lectures').insert({
       class_id: classItem.cloudId,
       user_id: currentUser.id,
       name: file.name,
@@ -243,12 +243,12 @@ async function uploadCloudFiles(classItem, files) {
 }
 
 async function loadCloudLibrary() {
-  const classesResult = await supabase.from('classes').select('*').order('created_at');
+  const classesResult = await supabaseClient.from('classes').select('*').order('created_at');
   if (classesResult.error) {
     setStatus(classesResult.error.message);
     return;
   }
-  const lecturesResult = await supabase.from('lectures').select('*').order('last_modified', { ascending: false });
+  const lecturesResult = await supabaseClient.from('lectures').select('*').order('last_modified', { ascending: false });
   if (lecturesResult.error) {
     setStatus(lecturesResult.error.message);
     return;
@@ -257,7 +257,7 @@ async function loadCloudLibrary() {
   for (const cloudClass of classesResult.data) {
     const classItem = { id: cloudClass.id, cloudId: cloudClass.id, name: cloudClass.name, files: [], manualFiles: [] };
     for (const lecture of lecturesResult.data.filter(item => item.class_id === cloudClass.id)) {
-      const signed = await supabase.storage.from('lectures').createSignedUrl(lecture.storage_path, 3600);
+      const signed = await supabaseClient.storage.from('lectures').createSignedUrl(lecture.storage_path, 3600);
       classItem.files.push({
         name: lecture.name,
         path: `${cloudClass.name}/${lecture.name}`,
