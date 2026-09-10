@@ -97,9 +97,6 @@ classForm.addEventListener('submit', event => {
 });
 cancelClassButton.addEventListener('click', () => classDialog.close());
 emptyChooseButton.addEventListener('click', chooseFolder);
-setInterval(() => {
-  if (state.directoryHandles.length || state.classes.some(item => item.directoryHandle)) scanDirectories();
-}, 30000);
 classGrid.addEventListener('click', event => {
   const removeFileButton = event.target.closest('[data-remove-file]');
   if (removeFileButton) {
